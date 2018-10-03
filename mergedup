@@ -6,6 +6,10 @@ import pipes
 
 # grown out of a perl parser for:
 # if (open(F,"find . -xdev -type f -print0|xargs -0 stat -f '%z\t%l\t%i\t%N'|sort -rn|")) {
+
+# flags
+# minimum size to check
+# maximum size to check
 #
 # was:
 # 162  1      25022910 merge.py
@@ -88,6 +92,7 @@ for root,dirs,files in os.walk('.'):
 # also, merge them if they are already hardlinked (detect by dev/inode match)
 def checkstage2(a):
     links={}
+    # XXX better ordering among links
     for i in a:
         l_key = '%d:%d'%(i['d'],i['i'],)
         if l_key in links:
@@ -128,6 +133,7 @@ def checkstage2(a):
         source=links[i][0]['n']
         if len(i_list):
             for i in i_list:
+                # XXX with already linked files, this need to be repeated
                 print "ln","-f",pipes.quote(source),pipes.quote(links[i][0]['n'])
 
     links=None
