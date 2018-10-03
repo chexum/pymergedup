@@ -1,0 +1,140 @@
+#!/usr/bin/env python
+
+import os,stat
+import hashlib
+import pipes
+
+# grown out of a perl parser for:
+# if (open(F,"find . -xdev -type f -print0|xargs -0 stat -f '%z\t%l\t%i\t%N'|sort -rn|")) {
+#
+# was:
+# 162  1      25022910 merge.py
+# bytes,links,inode,name
+#
+# next:
+# dev,inode,links,name
+# check -
+# hashfirst
+# hashfirst, hashlast
+# XXX larger venture:
+# check hashlast match inside longer files to check for fragments
+# XXX also: check hash matches for all shorter file sizes - OR all shorter contents
+
+allsizes={}
+allhashes={}
+
+for root,dirs,files in os.walk('.'):
+    for d in dirs:
+        # hack - ignore gitdirs
+        if os.path.isdir(os.path.join(root,d,'objects/info')):
+            dirs.remove(d)
+        if '.svn' in dirs:
+            dirs.remove('.svn')
+        if 'CVS' in dirs:
+            dirs.remove('CVS')
+
+    for f in files:
+        si = os.lstat(os.path.join(root,f))
+        if not stat.S_ISREG(si.st_mode):
+            continue
+
+        fi_key = si.st_size
+        fi_obj = {'d':si.st_dev,'i':si.st_ino,'l':si.st_nlink,'n':os.path.join(root,f)}
+
+        # XXX check hardlinks earlier to prevent duplicate read?
+
+        if fi_key and fi_key in allsizes:
+            c=allsizes[fi_key]
+            # we have a record of a file with the same length
+            # compute hash if it was not yet computed (second instance)
+            if len(c) == 1:
+                last_obj=c[0]
+                # partial hash of first N bytes
+                # does not need to be safe or collisionfree
+                # so shorter hash is nicer (md5 ok)
+                # XXX magic number
+                s_checked=min(256,fi_key)
+                with open(last_obj['n']) as f:
+                    h=hashlib.md5()
+                    h.update(f.read(s_checked))
+                    hd = ':'.join([h.hexdigest(),str(fi_key)])
+                    ###print 'checking',last_obj['n'],fi_key,hd
+                    if hd in allhashes:
+                        q = allhashes[hd]
+                        q.append(c[0])
+                    else:
+                        allhashes[hd]=[c[0]]
+
+            # XXX magic number
+            s_checked=min(256,fi_key)
+            with open(fi_obj['n']) as f:
+                h=hashlib.md5()
+                h.update(f.read(s_checked))
+                hd = ':'.join([h.hexdigest(),str(fi_key)])
+                ###print 'checking',fi_obj['n'],fi_key,hd
+                if hd in allhashes:
+                    q = allhashes[hd]
+                    q.append(fi_obj)
+                else:
+                    allhashes[hd]=[fi_obj]
+
+            c.append(fi_obj)
+        else:
+            # store first record - skip hash computation yet
+            allsizes[fi_key]=[fi_obj]
+
+# second pass - all the records here (when duplicated) are a possible match
+# by length and bytes at the start of the file
+# also, merge them if they are already hardlinked (detect by dev/inode match)
+def checkstage2(a):
+    links={}
+    for i in a:
+        l_key = '%d:%d'%(i['d'],i['i'],)
+        if l_key in links:
+            links[l_key].append(i)
+        else:
+            links[l_key]=[i]
+
+    fullhashes={}
+    # HHHH -> [ddd:NNN +++]
+    # HHHH -> [ddd:NNN +++]
+    # start with the inode having the most links present
+    for l in sorted(links,key=len,reverse=True):
+        # XXX warn about hardlinked dup?
+        # list of ddd:NNNNNN
+        with open(links[l][0]['n']) as f:
+            # this is for comparison, must not collide
+            # XXX check for hash in XA?
+            h = hashlib.sha256()
+            while True:
+                # XXX magic 16K
+                b=f.read(16384)
+                if len(b) == 0:
+                    break
+                h.update(b)
+            hd = h.hexdigest()
+            l_key = '%d:%d'%(links[l][0]['d'],links[l][0]['i'],)
+            if hd in fullhashes:
+                fullhashes[hd].append(l_key)
+            else:
+                fullhashes[hd]=[l_key]
+
+    # HHHH -> [ddd:NNN +++]
+    # HHHH -> [ddd:NNN +++]
+    for h in fullhashes:
+        i_list=fullhashes[h]
+        # again, list of ddd:NNNN
+        i=i_list.pop(0)
+        source=links[i][0]['n']
+        if len(i_list):
+            for i in i_list:
+                print "ln","-f",pipes.quote(source),pipes.quote(links[i][0]['n'])
+
+    links=None
+    fullhashes=None
+
+# perform second pass
+for i in allhashes.keys():
+    if len(allhashes[i])>1:
+        checkstage2(allhashes[i])
+
