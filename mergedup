@@ -90,7 +90,7 @@ for root,dirs,files in os.walk('.'):
 # second pass - all the records here (when duplicated) are a possible match
 # by length and bytes at the start of the file
 # also, merge them if they are already hardlinked (detect by dev/inode match)
-def checkstage2(a):
+def checkstage2(a,hashindex):
     links={}
     # XXX better ordering among links
     for i in a:
@@ -105,6 +105,7 @@ def checkstage2(a):
     # HHHH -> [ddd:NNN +++]
     # start with the inode having the most links present
     for l in sorted(links,key=len,reverse=True):
+        print 'XXX full check of',links[l][0]['n'],'for',hashindex
         # XXX warn about hardlinked dup?
         # list of ddd:NNNNNN
         with open(links[l][0]['n']) as f:
@@ -142,5 +143,5 @@ def checkstage2(a):
 # perform second pass
 for i in allhashes.keys():
     if len(allhashes[i])>1:
-        checkstage2(allhashes[i])
+        checkstage2(allhashes[i],i)
 
