@@ -143,6 +143,11 @@ def checkstage2(a,hashindex):
 # perform second pass
 for i in allhashes.keys():
     if len(allhashes[i])>1:
-        # XXX oops, don't check if there are only hardlinks
-        checkstage2(allhashes[i],i)
+        i_uniq={}
+        for z in allhashes[i]:
+            i_key = '%d:%d'%(z['d'],z['i'],)
+            if i_key not in i_uniq:
+                i_uniq[i_key]=i_key
+        if len(i_uniq.keys())>1:
+            checkstage2(allhashes[i],i)
 
