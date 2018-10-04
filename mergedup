@@ -143,5 +143,6 @@ def checkstage2(a,hashindex):
 # perform second pass
 for i in allhashes.keys():
     if len(allhashes[i])>1:
+        # XXX oops, don't check if there are only hardlinks
         checkstage2(allhashes[i],i)
 
